@@ -87,12 +87,7 @@ void setupPower()
 void setupUART()
 {
   //Check to see if we are ignoring the RX reset or not
-  byte settingIgnoreRX = EEPROM.read(LOCATION_IGNORE_RX);
-  if (settingIgnoreRX > 1)
-  {
-    settingIgnoreRX = false; //Don't ignore
-    EEPROM.write(LOCATION_IGNORE_RX, settingIgnoreRX);
-  }
+  settingIgnoreRX = EEPROM.read(LOCATION_IGNORE_RX);
 
   if (settingIgnoreRX == false) //If we are NOT ignoring RX, then
     checkEmergencyReset(); //Look to see if the RX pin is being pulled low
@@ -103,7 +98,7 @@ void setupUART()
   if (settingUARTSpeed > BAUD_1000000) //Check to see if the baud rate has ever been set
   {
     settingUARTSpeed = DEFAULT_BAUD; //Reset UART to 9600 if there is no baud rate stored
-    EEPROM.write(LOCATION_BAUD, settingUARTSpeed);
+    EEPROM.update(LOCATION_BAUD, settingUARTSpeed);
   }
 
   //Initialize the UART
@@ -139,7 +134,7 @@ void setupTWI()
   if ((twiAddress == 0) || (twiAddress > 0x7F))
   { // If the TWI address is invalid, use a default address
     twiAddress = DEFAULT_TWI_ADDRESS;
-    EEPROM.write(LOCATION_TWI_ADDRESS, DEFAULT_TWI_ADDRESS);
+    EEPROM.update(LOCATION_TWI_ADDRESS, DEFAULT_TWI_ADDRESS);
   }
 
   Wire.begin(twiAddress);  //Initialize Wire library as slave at twiAddress address
@@ -153,26 +148,25 @@ void setupContrast()
   byte settingContrast = EEPROM.read(LOCATION_CONTRAST);
   if (settingContrast == 255) //Check to see if the contrast has ever been set
   {
-    if (DISPLAY_TYPE == LCD) settingContrast = DEFAULT_CONTRAST_LCD; //Default
-    else if (DISPLAY_TYPE == OLED) settingContrast = DEFAULT_CONTRAST_OLED; //Default
-    EEPROM.write(LOCATION_CONTRAST, settingContrast);
+    settingContrast = DEFAULT_CONTRAST_LCD; //Default
+    EEPROM.update(LOCATION_CONTRAST, settingContrast);
   }
 
   //Change contrast without notification message
-  if (DISPLAY_TYPE == LCD)
+  setPwmFrequency(LCD_CONTRAST, 1); //Set the freq of this pin so that it doesn't cause LCD to ripple
+  pinMode(LCD_CONTRAST, OUTPUT);
+  analogWrite(LCD_CONTRAST, settingContrast);
+}
+
+//Look up settings like the enabling of system messages
+void setupSystemMessages()
+{
+  //Look up if we should display messages or not
+  settingDisplaySystemMessages = EEPROM.read(LOCATION_DISPLAY_SYSTEM_MESSAGES);
+  if (settingDisplaySystemMessages > 1) //True = 1, false = 0
   {
-    setPwmFrequency(LCD_CONTRAST, 1); //Set the freq of this pin so that it doesn't cause LCD to ripple
-    pinMode(LCD_CONTRAST, OUTPUT);
-    analogWrite(LCD_CONTRAST, settingContrast);
-  }
-  else if (DISPLAY_TYPE == OLED)
-  {
-    SerLCD.command(0x2A); //Command: Function Set, set extension register (RE)
-    SerLCD.command(0x79); //Command: OLED Characterization, OLED command set is enabled
-    SerLCD.command(0x81); //Set Contrast Control
-    SerLCD.command(settingContrast); //Set Contrast Control: 0 to 255
-    SerLCD.command(0x78); //Command: OLED Characterization, OLED command set is disabled
-    SerLCD.command(0x28); //Command: Function Set, clear extension register (RE)
+    settingDisplaySystemMessages = DEFAULT_DISPLAY_SYSTEM_MESSAGES;
+    EEPROM.update(LOCATION_DISPLAY_SYSTEM_MESSAGES, settingDisplaySystemMessages);
   }
 }
 
@@ -184,14 +178,14 @@ void setupLCD()
   if (settingLCDlines > 4)
   {
     settingLCDlines = DEFAULT_LINES;
-    EEPROM.write(LOCATION_LINES, settingLCDlines);
+    EEPROM.update(LOCATION_LINES, settingLCDlines);
   }
 
   settingLCDwidth = EEPROM.read(LOCATION_WIDTH);
   if (settingLCDwidth > 20)
   {
     settingLCDwidth = DEFAULT_WIDTH;
-    EEPROM.write(LOCATION_WIDTH, settingLCDwidth);
+    EEPROM.update(LOCATION_WIDTH, settingLCDwidth);
   }
 
   //Check the display jumper
@@ -211,103 +205,22 @@ void setupLCD()
   clearFrameBuffer();
 }
 
-//Initialize the OLED
-void setupOLED()
-{
-  //Look up display lines and width
-  settingLCDlines = EEPROM.read(LOCATION_LINES);
-  if (settingLCDlines > 4)
-  {
-    settingLCDlines = DEFAULT_LINES;
-    EEPROM.write(LOCATION_LINES, settingLCDlines);
-  }
-
-  settingLCDwidth = EEPROM.read(LOCATION_WIDTH);
-  if (settingLCDwidth > 20)
-  {
-    settingLCDwidth = DEFAULT_WIDTH;
-    EEPROM.write(LOCATION_WIDTH, settingLCDwidth);
-  }
-
-  //Reset the OLED display
-  pinMode(7, OUTPUT); //Pin 7 = RES#
-  analogWrite(7, 0);
-  delay(10);
-  analogWrite(7, 255);
-  delay(10);
-
-  SerLCD.begin(settingLCDwidth, settingLCDlines); //Setup the width and lines for this LCD
-
-  //Configure the OLED display - comes from mfg
-
-  //Turn on internal v-reg
-  SerLCD.command(0x2A); //Command: Function Set, set extension register (RE)
-  SerLCD.command(0x71); //Command: Function Selection A
-  SerLCD.write(0x5C); //original: Enable internal Vdd regulator (5V I/O)
-  SerLCD.command(0x28); //Command: Function Set, clear extension register (RE)
-
-  SerLCD.command(0x08); //Command: Display ON/OFF Control. Display off, cursor off, blink off
-
-  //Set Oscillator frequency
-  SerLCD.command(0x2A); //Command: Function Set, set extension register (RE)
-  SerLCD.command(0x79); //Command: OLED Characterization, OLED command set is enabled
-  SerLCD.command(0xD5); //OLED Command: Set Display Clock Divide Ratio/Oscillator Frequency
-  SerLCD.command(0x70); //(POR) Default oscillator freq, set divide ratio to 1
-  SerLCD.command(0x78); //Command: OLED Characterization, OLED command set is disabled
-  SerLCD.command(0x28); //Command: Function Set, clear extension register (RE)
-
-  //Set ROM and CHRAM settings
-  SerLCD.command(0x2A); //Command: Function Set, set extension register (RE)
-  SerLCD.command(0x08); //Extended Function Set: NW = 0 for 2-lines
-  SerLCD.command(0x06); //COM SEG direction - this command doesn't make sense
-  SerLCD.command(0x72); //Function Selection B - Selecting ROM and CGROM
-  SerLCD.write(0x08); //ROM and CGROM Selection: ROM 'C' with 240 CGROM
-  SerLCD.command(0x28); //Command: Function Set, clear extension register (RE)
-
-  //Setup contrast, external VSL, etc
-  SerLCD.command(0x2A); //Command: Function Set, set extension register (RE)
-  SerLCD.command(0x79); //Command: OLED Characterization, OLED command set is enabled
-  SerLCD.command(0xDA); //Set SEG Pins Hardware Configuration
-  SerLCD.command(0x10); //Set SEG Pins Hardware Configuration: Disable SEG left/right, Alternative SEG pin config
-  SerLCD.command(0xDC); //Set VSL/GPIO: function selection C
-  SerLCD.command(0x00); //Function Select C: Disable external VSL, disable GPIOs
-  //Contrast is set later during setup
-  //SerLCD.command(0x81); //Set Contrast Control
-  //SerLCD.command(0xFF); //Set Contrast Control: 0 to 255
-  SerLCD.command(0xD9); //Set Phase Length
-  SerLCD.command(0xF1); //Set Phase Length: Phase 2 = 15, Phase 1 = 1
-  SerLCD.command(0xDB); //Set VCOMH Deselect Level
-  SerLCD.command(0x00); //Set VCOMH Deselect Level: 0.65 x VCC
-  SerLCD.command(0x78); //Command: OLED Characterization, OLED command set is disabled
-  SerLCD.command(0x28); //Command: Function Set, clear extension register (RE)
-
-  SerLCD.command(0x01); //clear display
-  SerLCD.command(0x0C); //Command: Display ON/OFF Control. Display on, cursor off, blink off
-
-  SerLCD.setCursor(0, 0); //First spot
-
-  //Clear any characters in the frame buffer
-  clearFrameBuffer();
-}
-
 //Look up and start the 3 backlight pins in analog mode
 void setupBacklight()
 {
-  if (DISPLAY_TYPE == LCD)
-  {
-    pinMode(BL_RW, OUTPUT);
-    pinMode(BL_G, OUTPUT);
-    pinMode(BL_B, OUTPUT);
+  pinMode(BL_RW, OUTPUT);
+  pinMode(BL_G, OUTPUT);
+  pinMode(BL_B, OUTPUT);
 
-    //By default EEPROM is 255 or 100% brightness
-    //Because there's a PNP transistor we need to invert the logic (or subtract the user value from 255)
-    analogWrite(BL_RW, 255 - EEPROM.read(LOCATION_RED_BRIGHTNESS));
-    analogWrite(BL_G, 255 - EEPROM.read(LOCATION_GREEN_BRIGHTNESS));
+  //By default EEPROM is 255 or 100% brightness
+  //Because there's a PNP transistor we need to invert the logic (or subtract the user value from 255)
+  analogWrite(BL_RW, 255 - EEPROM.read(LOCATION_RED_BRIGHTNESS));
+  analogWrite(BL_G, 255 - EEPROM.read(LOCATION_GREEN_BRIGHTNESS));
 
-    SoftPWMBegin(); //Start PWM
-    SoftPWMSet(BL_B, 255 - EEPROM.read(LOCATION_BLUE_BRIGHTNESS)); //Setup this pin to be controlled with SoftPWM. Initialize to EEPROM value
-    SoftPWMSetFadeTime(BL_B, 0, 0); //Don't fade - go immediately to this set PWM brightness
-  }
+  // SoftPWM has a true off (0 is really off), but not a true on (255 is not 100% duty cycle), so invert the logic to be able to fully turn off the blue LED.
+  SoftPWMBegin(SOFTPWM_INVERTED ); //Start PWM. 
+  SoftPWMSet(BL_B, EEPROM.read(LOCATION_BLUE_BRIGHTNESS)); //Setup this pin to be controlled with SoftPWM. Initialize to EEPROM value
+  SoftPWMSetFadeTime(BL_B, 0, 0); //Don't fade - go immediately to this set PWM brightness
 }
 
 void setupSplash()
@@ -317,10 +230,10 @@ void setupSplash()
   if (settingSplashEnable > 1)
   {
     settingSplashEnable = DEFAULT_SPLASH;
-    EEPROM.write(LOCATION_SPLASH_ONOFF, settingSplashEnable);
+    EEPROM.update(LOCATION_SPLASH_ONOFF, settingSplashEnable);
   }
 
-  if (settingSplashEnable)
+  if (settingSplashEnable == true)
   {
     //Look up user content from memory
     byte content = EEPROM.read(LOCATION_SPLASH_CONTENT);
@@ -331,9 +244,9 @@ void setupSplash()
       //This should work with both 16 and 20 character displays
       SerLCD.clear();
       SerLCD.setCursor(0, 0); //First position, 1st row
-      SerLCD.print("SparkFun OpenLCD");
+      SerLCD.print(F("SparkFun OpenLCD"));
       SerLCD.setCursor(0, 1); //First position, 2nd row
-      SerLCD.print("Baud: ");
+      SerLCD.print(F("Baud:"));
 
       //Read what the current UART speed is from EEPROM memory
       //Default is 9600
@@ -341,10 +254,16 @@ void setupSplash()
       if (settingUARTSpeed > BAUD_1000000) //Check to see if the baud rate has ever been set
       {
         settingUARTSpeed = DEFAULT_BAUD; //Reset UART to 9600 if there is no baud rate stored
-        EEPROM.write(LOCATION_BAUD, settingUARTSpeed);
+        EEPROM.update(LOCATION_BAUD, settingUARTSpeed);
       }
 
       SerLCD.print(lookUpBaudRate(settingUARTSpeed));
+
+      //Display firmware version
+      SerLCD.print(F(" v"));
+      SerLCD.print(firmwareVersionMajor);
+      SerLCD.print(F("."));
+      SerLCD.print(firmwareVersionMinor);
     }
     else
     {
@@ -373,7 +292,7 @@ void setupSplash()
 
           SerLCD.print("Baud Reset");
 
-          EEPROM.write(LOCATION_BAUD, BAUD_9600);
+          EEPROM.update(LOCATION_BAUD, BAUD_9600);
 
           petSafeDelay(SYSTEM_MESSAGE_DELAY);
 
@@ -421,7 +340,6 @@ void checkEmergencyReset(void)
   pinMode(rxPin, INPUT_PULLUP); //Turn the RX pin into an input with pullups
 
   if (digitalRead(rxPin) == HIGH) return; //Quick pin check
-
   //Wait 2 seconds, blinking backlight while we wait
   pinMode(BL_RW, OUTPUT);
   digitalWrite(BL_RW, HIGH); //Set the STAT2 LED
@@ -441,21 +359,18 @@ void checkEmergencyReset(void)
 
   //If we make it here, then RX pin stayed low the whole time
   //Reset all EEPROM locations to factory defaults.
-  for (int x = 0 ; x < 200 ; x++)
-    EEPROM.write(x, 0xFF);
-
+  for (int x = 0 ; x < 200 ; x++) EEPROM.update(x, 0xFF);
 
   //Change contrast without notification message
-  if (DISPLAY_TYPE == LCD) analogWrite(LCD_CONTRAST, 40); //Set contrast to default
-  else if (DISPLAY_TYPE == OLED)
-  {
-    SerLCD.command(0x2A); //Command: Function Set, set extension register (RE)
-    SerLCD.command(0x79); //Command: OLED Characterization, OLED command set is enabled
-    SerLCD.command(0x81); //Set Contrast Control
-    SerLCD.command(255); //Set Contrast Control: 0 to 255
-    SerLCD.command(0x78); //Command: OLED Characterization, OLED command set is disabled
-    SerLCD.command(0x28); //Command: Function Set, clear extension register (RE)
-  }
+  analogWrite(LCD_CONTRAST, DEFAULT_CONTRAST_LCD); //Set contrast to default
+
+  //Force ignoreRX to false.
+  EEPROM.update(LOCATION_IGNORE_RX, false);
+
+  //Change backlight to defaults
+  changeBLBrightness(RED, DEFAULT_RED);
+  changeBLBrightness(GREEN, DEFAULT_GREEN);
+  changeBLBrightness(BLUE, DEFAULT_BLUE);
 
   SerLCD.clear();
   SerLCD.print("System reset");
